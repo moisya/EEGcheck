@@ -29,6 +29,7 @@ def calculate_features(filtered_eeg_data, eval_data, time_range):
     
     # 周波数帯域の定義
     bands = {
+        'delta': [1, 4],
         'theta': [4, 7],
         'alpha': [8, 13], # 8-13Hzに変更
         'beta':  [13, 30],
