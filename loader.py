@@ -8,7 +8,7 @@ import os
 
 @st.cache_data(show_spinner="XDFファイルを解析中...")
 def load_xdf_data(uploaded_file):
-    """XDFファイルからEEGデータとマーカーを読み込む"""
+    """XDFファイルからEEGデータとマーカーを読み込む（堅牢版）"""
     try:
         with tempfile.NamedTemporaryFile(delete=False, suffix='.xdf') as tmp:
             tmp.write(uploaded_file.getvalue())
@@ -40,15 +40,26 @@ def load_xdf_data(uploaded_file):
 
             # マーカーストリームを特定
             elif stype in ['markers', 'marker']:
-                markers = [{'marker_time': ts, 'marker_value': int(val[0])}
-                           for ts, val in zip(stream['time_stamps'], stream['time_series'])]
-                marker_stream = pd.DataFrame(markers)
+                marker_list = []
+                for ts, val_list in zip(stream['time_stamps'], stream['time_series']):
+                    if not val_list:  # 空のマーカーはスキップ
+                        continue
+                    try:
+                        # 整数に変換できるマーカーのみを抽出
+                        marker_value = int(val_list[0])
+                        marker_list.append({'marker_time': ts, 'marker_value': marker_value})
+                    except (ValueError, TypeError):
+                        # 整数に変換できないマーカー（例：JSON文字列）は無視する
+                        continue
+                
+                if marker_list:
+                    marker_stream = pd.DataFrame(marker_list)
 
         if eeg_stream is None:
             st.error("XDFファイルにFp1, Fp2チャンネルを含むEEGストリームが見つかりません。")
             return None
         if marker_stream is None:
-            st.warning("マーカーストリームが見つかりません。波形ビューア（秒数指定）のみ利用可能です。")
+            st.warning("数字の形式のマーカーストリームが見つかりませんでした。波形ビューア（秒数指定）のみ利用可能です。")
             marker_stream = pd.DataFrame(columns=['marker_time', 'marker_value'])
 
         st.success(f"EEGデータ読み込み完了 (SampleRate: {eeg_stream['sfreq']} Hz)")
