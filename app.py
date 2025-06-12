@@ -3,7 +3,7 @@ import os
 import pandas as pd
 from loader import load_xdf, load_evaluation_data
 from preprocess import apply_filters, create_epochs
-from features import calculate_features_sliding_window # 新しい関数をインポート
+from features import calculate_features_sliding_window
 from utils_plot import plot_waveforms, plot_outlier_scatter
 
 # --- 初期設定と認証 ---
@@ -81,11 +81,9 @@ def outlier_rejection_tab(controls):
     st.metric("除去された微小区間（ウィンドウ）の数", removed_count, f"-{removed_count / original_count:.1%}" if original_count > 0 else "")
     
     col1, col2 = st.columns(2)
-    # ★★ ここを修正 ★★
     fig1 = plot_outlier_scatter(df, f'{ch_select}_delta', f'{ch_select}_amplitude', delta_thresh, amp_thresh)
     col1.plotly_chart(fig1, use_container_width=True, key="scatter1")
     
-    # ★★ ここを修正 ★★
     fig2 = plot_outlier_scatter(df, f'{ch_select}_delta', f'{ch_select}_gamma', delta_thresh, gamma_thresh)
     col2.plotly_chart(fig2, use_container_width=True, key="scatter2")
 
@@ -108,8 +106,11 @@ def post_rejection_viewer_tab(controls):
         plot_data = {'raw': raw_epoch['data'], 'filtered': filtered_epoch['data'], 'times': raw_epoch['times'], 'time_range': controls['time_range']}
         outliers_for_plot = st.session_state.outlier_windows_df[st.session_state.outlier_windows_df['img_id'] == img_id_to_view]
         
-        # ハイライト表示用にデータフレームの列名を変更
-        outliers_for_plot_renamed = outliers_for_plot.rename(columns={'window_start_sec': 'second'})
+        # ★★ ここを修正 ★★
+        # ハイライト表示用にデータフレームの列名を両方変更する
+        outliers_for_plot_renamed = outliers_for_plot.rename(
+            columns={'window_start_sec': 'second', 'window_end_sec': 'second_end'}
+        )
         
         fig = plot_waveforms(plot_data, display_mode="並べて", outlier_df=outliers_for_plot_renamed)
         st.plotly_chart(fig, use_container_width=True)
