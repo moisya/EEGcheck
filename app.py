@@ -74,7 +74,6 @@ def sidebar_controls():
 # --- タブコンテンツ ---
 def waveform_viewer_tab(controls):
     st.header("📈 波形ビューア")
-    # ★★ここを修正★★
     if st.session_state.eeg_data is None:
         st.warning("サイドバーからデータをアップロードしてください。")
         return
@@ -124,7 +123,6 @@ def waveform_viewer_tab(controls):
 
 def frequency_analysis_tab(controls):
     st.header("🔬 周波数解析・散布図")
-    # ★★ここを修正★★
     if st.session_state.eeg_data is None or st.session_state.eval_data is None:
         st.warning("EEGデータと評価データの両方をアップロードしてください。")
         return
@@ -141,20 +139,33 @@ def frequency_analysis_tab(controls):
         df = st.session_state.feature_df
         st.markdown("---"); st.subheader("📊 散布図と相関分析")
         
-        col1, col2 = st.columns(2)
+        # ★★ここからが新しいUI★★
+        col1, col2, col3 = st.columns(3)
         feature_cols = sorted([c for c in df.columns if 'power' in c or 'asymmetry' in c or 'freq' in c])
         eval_cols = sorted([c for c in ['Dislike_Like', 'sam_val', 'sam_aro'] if c in df.columns])
 
-        with col1: x_axis = st.selectbox("X軸（EEG特徴量）", feature_cols, index=feature_cols.index("alpha_asymmetry") if "alpha_asymmetry" in feature_cols else 0)
+        with col1:
+            x_axis = st.selectbox("X軸（EEG特徴量）", feature_cols, index=feature_cols.index("alpha_asymmetry") if "alpha_asymmetry" in feature_cols else 0)
         with col2:
-            if not eval_cols: st.error("評価データに分析可能な列がありません。"); return
-            y_axis = st.selectbox("Y軸（主観評価）", eval_cols)
+            # Y軸もEEG特徴量から選ぶように変更
+            y_axis = st.selectbox("Y軸（EEG特徴量）", feature_cols, index=1 if len(feature_cols) > 1 else 0)
+        with col3:
+            if not eval_cols:
+                st.error("評価データに分析可能な列がありません。")
+                return
+            # 新しく「色」の選択肢を追加
+            color_axis = st.selectbox("凡例/色（主観評価）", eval_cols)
 
-        if x_axis and y_axis:
-            fig, r, p = plot_scatter_with_regression(df, x_axis, y_axis)
+        if x_axis and y_axis and color_axis:
+            # 新しいプロット関数を呼び出す
+            fig, r, p = plot_scatter_with_regression(df, x_axis, y_axis, color_axis)
             if fig:
-                col1, col2 = st.columns(2); col1.metric("ピアソンr", f"{r:.3f}"); col2.metric("p値", f"{p:.3f}")
+                st.markdown(f"**X軸 ({x_axis}) と Y軸 ({y_axis}) の相関**")
+                col1, col2 = st.columns(2);
+                col1.metric("ピアソン相関係数 (r)", f"{r:.3f}");
+                col2.metric("p値", f"{p:.3f}")
                 st.plotly_chart(fig, use_container_width=True)
+        # ★★ここまで★★
 
         st.markdown("---"); st.subheader("📋 データテーブル")
         st.dataframe(df)
