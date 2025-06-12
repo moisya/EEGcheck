@@ -1,15 +1,3 @@
-ご依頼ありがとうございます。2チャンネルEEGデータの解析・可視化Streamlitアプリを、ご提示の要件と途中経過のコードを基に完成させました。
-
-各ファイルはモジュール構成の推奨に従い、インタラクションの最適化やデプロイを考慮して実装しています。
-
-成果物
-
-以下に、GitHubリポジトリ一式に含めるべき全ファイル（ソースコード、README、requirements.txt）を記載します。
-
-1. ソースコード (app.py, loader.py, preprocess.py, features.py, utils_plot.py)
-
-提供されたコードを基に、データフローの修正、UIの完成、インタラクションの最適化を行いました。
-
 import streamlit as st
 import os
 import pandas as pd
