@@ -2,8 +2,9 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import numpy as np
 import pandas as pd
-from scipy.stats import pearsonr, linregress
+from scipy.stats import pearsonr
 import streamlit as st
+import plotly.express as px  # ←★★この1行を追加しました！★★
 
 def plot_waveforms(plot_data, display_mode="重ねて"):
     """生波形とフィルター後波形をプロット"""
