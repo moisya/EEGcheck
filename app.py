@@ -58,37 +58,38 @@ def outlier_rejection_tab(controls):
     if st.session_state.features_df is None or st.session_state.features_df.empty:
         st.info("上のボタンを押して、特徴量計算を開始してください。"); return
 
-    st.markdown("---"); st.subheader("📊 散布図によるアーチファクトの可視化")
+    st.markdown("---"); st.subheader("📊 散布図によるアーチファクトの可視化と除去")
     df = st.session_state.features_df
     ch_select = st.radio("対象チャンネル", ["Fp1", "Fp2"], horizontal=True)
     
     st.markdown("##### 除去する閾値を設定（いずれか一つでも超えたら除去）")
-    # ★★ ここからUIを改善 ★★
-    st.info("**まばたき**の除去には、主に**振幅**の閾値が有効です。")
-    col1, col2, col3 = st.columns(3)
-    # デフォルト値を少し下げることで、より多くのデータが見えるようにする
-    amp_thresh = col1.number_input(f"振幅(µV)の上限（まばたき検出）", value=df[f'{ch_select}_amplitude'].quantile(0.95))
-    delta_thresh = col2.number_input(f"デルタ波パワーの上限", value=df[f'{ch_select}_delta'].quantile(0.95))
-    gamma_thresh = col3.number_input(f"ガンマ波パワーの上限（筋電ノイズ検出）", value=df[f'{ch_select}_gamma'].quantile(0.95))
-    # ★★ ここまで ★★
-
-    outliers = df[
-        (df[f'{ch_select}_amplitude'] >= amp_thresh) |
-        (df[f'{ch_select}_delta'] >= delta_thresh) |
-        (df[f'{ch_select}_gamma'] >= gamma_thresh)
-    ]
-    st.session_state.outlier_windows_df = outliers
-
-    original_count = len(df)
-    removed_count = len(outliers)
-    st.metric("除去された微小区間（ウィンドウ）の数", removed_count, f"-{removed_count / original_count:.1%}" if original_count > 0 else "")
     
+    # 6つの閾値を設定
+    thresholds = {}
+    cols = st.columns(3)
+    bands = ['amplitude', 'delta', 'theta', 'alpha', 'beta', 'gamma']
+    for i, band in enumerate(bands):
+        key = f'{ch_select}_{band}'
+        if key in df.columns:
+            thresholds[key] = cols[i % 3].number_input(f"{key} の上限", value=df[key].quantile(0.99))
+
+    # 外れ値ウィンドウを特定
+    if thresholds:
+      query = " | ".join([f"`{key}` >= {val}" for key, val in thresholds.items()])
+      outliers = df.query(query)
+      st.session_state.outlier_windows_df = outliers
+      st.metric("除去された微小区間（ウィンドウ）の数", len(outliers), f"-{len(outliers) / len(df):.1%}" if len(df) > 0 else "")
+    
+    # 表示するグラフの軸を自由に選択
+    st.markdown("##### 表示するグラフの軸を選択")
+    feature_cols = [f'{ch_select}_{b}' for b in bands]
     col1, col2 = st.columns(2)
-    fig1 = plot_outlier_scatter(df, f'{ch_select}_delta', f'{ch_select}_amplitude', delta_thresh, amp_thresh)
-    col1.plotly_chart(fig1, use_container_width=True, key="scatter1")
-    
-    fig2 = plot_outlier_scatter(df, f'{ch_select}_delta', f'{ch_select}_gamma', delta_thresh, gamma_thresh)
-    col2.plotly_chart(fig2, use_container_width=True, key="scatter2")
+    x_axis = col1.selectbox("X軸", feature_cols, index=1) # delta
+    y_axis = col2.selectbox("Y軸", feature_cols, index=0) # amplitude
+
+    if x_axis in df.columns and y_axis in df.columns:
+        fig = plot_outlier_scatter(df, x_axis, y_axis, thresholds.get(x_axis), thresholds.get(y_axis))
+        st.plotly_chart(fig, use_container_width=True)
 
 # --- 除去後波形タブ ---
 def post_rejection_viewer_tab(controls):
@@ -109,9 +110,7 @@ def post_rejection_viewer_tab(controls):
         plot_data = {'raw': raw_epoch['data'], 'filtered': filtered_epoch['data'], 'times': raw_epoch['times'], 'time_range': controls['time_range']}
         outliers_for_plot = st.session_state.outlier_windows_df[st.session_state.outlier_windows_df['img_id'] == img_id_to_view]
         
-        outliers_for_plot_renamed = outliers_for_plot.rename(
-            columns={'window_start_sec': 'second', 'window_end_sec': 'second_end'}
-        )
+        outliers_for_plot_renamed = outliers_for_plot.rename(columns={'window_start_sec': 'second', 'window_end_sec': 'second_end'})
         
         fig = plot_waveforms(plot_data, display_mode="並べて", outlier_df=outliers_for_plot_renamed)
         st.plotly_chart(fig, use_container_width=True)
@@ -124,10 +123,7 @@ def main():
     controls = sidebar_controls()
     
     tab1, tab2 = st.tabs(["🔬 アーチファクトの検出・除去", "👀 除去後の波形確認"])
-    with tab1:
-        outlier_rejection_tab(controls)
-    with tab2:
-        post_rejection_viewer_tab(controls)
+    with tab1: outlier_rejection_tab(controls)
+    with tab2: post_rejection_viewer_tab(controls)
 
-if __name__ == "__main__":
-    main()
+if __name__ == "__main__": main()
