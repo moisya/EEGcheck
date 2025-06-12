@@ -77,13 +77,16 @@ def outlier_rejection_tab(controls):
 
     original_count = len(df)
     removed_count = len(outliers)
-    st.metric("除去された微小区間（ウィンドウ）の数", removed_count, f"-{removed_count / original_count:.1%}")
+    st.metric("除去された微小区間（ウィンドウ）の数", removed_count, f"-{removed_count / original_count:.1%}" if original_count > 0 else "")
     
     col1, col2 = st.columns(2)
     fig1 = plot_outlier_scatter(df, f'{ch_select}_delta', f'{ch_select}_amplitude', None, delta_thresh, amp_thresh)
-    col1.plotly_chart(fig1, use_container_width=True)
+    # ★★ ここを修正 ★★
+    col1.plotly_chart(fig1, use_container_width=True, key="scatter1")
+    
     fig2 = plot_outlier_scatter(df, f'{ch_select}_delta', f'{ch_select}_gamma', None, delta_thresh, gamma_thresh)
-    col2.plotly_chart(fig2, use_container_width=True)
+    # ★★ ここを修正 ★★
+    col2.plotly_chart(fig2, use_container_width=True, key="scatter2")
 
 # --- 除去後波形タブ ---
 def post_rejection_viewer_tab(controls):
@@ -105,9 +108,9 @@ def post_rejection_viewer_tab(controls):
         outliers_for_plot = st.session_state.outlier_windows_df[st.session_state.outlier_windows_df['img_id'] == img_id_to_view]
         
         # ハイライト表示用にデータフレームの列名を変更
-        outliers_for_plot = outliers_for_plot.rename(columns={'window_start_sec': 'second'})
+        outliers_for_plot_renamed = outliers_for_plot.rename(columns={'window_start_sec': 'second', 'window_end_sec': 'second_end'})
         
-        fig = plot_waveforms(plot_data, display_mode="並べて", outlier_df=outliers_for_plot)
+        fig = plot_waveforms(plot_data, display_mode="並べて", outlier_df=outliers_for_plot_renamed)
         st.plotly_chart(fig, use_container_width=True)
 
 # --- メイン実行部 ---
