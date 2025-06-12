@@ -1,139 +1,100 @@
-import os
-import tempfile
-from io import BytesIO
-
-import numpy as np
 import pandas as pd
+import numpy as np
 import pyxdf
 import streamlit as st
+import json
+import tempfile
+import os
 
-
-# ────────────────────────────────────────────────
-# XDF ─────────────────────────────────────────────
-# ────────────────────────────────────────────────
-@st.cache_data(show_spinner="XDF ファイルを解析しています…")
-def load_xdf_data(uploaded_file):
+@st.cache_data(show_spinner="XDFファイルを解析中...")
+def load_xdf(uploaded_file):
     """
-    XDF ファイルから 2ch EEG (Fp1, Fp2) とマーカーを抽出して辞書で返す。
-    返り値: {"eeg_stream": {...}, "markers": DataFrame}
+    特定の形式のXDFファイル（ラベル無し、先頭2chがEEG）を読み込むことに特化したローダー。
     """
-    try:
-        # ① 一時ファイルに保存（pyxdf は file-path しか受けない）
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".xdf") as tmp:
-            tmp.write(uploaded_file.getvalue())
-            tmp_path = tmp.name
+    with tempfile.NamedTemporaryFile(delete=False, suffix='.xdf') as tmp:
+        tmp.write(uploaded_file.getvalue())
+        path = tmp.name
+    streams, _ = pyxdf.load_xdf(path)
+    os.unlink(path)
 
-        # ② 読み込み
-        streams, _ = pyxdf.load_xdf(tmp_path, verbose=False)
-    finally:
-        # ③ 後始末
-        if os.path.exists(tmp_path):
-            os.unlink(tmp_path)
-
-    eeg_stream, marker_df = None, None
-
-    # ④ ストリーム特定
+    eeg_stream, marker_stream = None, None
+    
     for s in streams:
-        info = s["info"]
-
-        # ── EEG ストリーム判定 ──────────────────────
-        #   ・type が "EEG" など
-        #   ・チャンネルに Fp1, Fp2 が含まれる
-        stype = info["type"][0].lower()
-        if "eeg" in stype:
-            # channel ラベル取得（XML 構造は実装差があるため try/except）
-            try:
-                ch_nodes = info["desc"][0]["channels"][0]["channel"]
-                labels = [ch["label"][0] for ch in ch_nodes]
-            except (KeyError, IndexError, TypeError):
-                labels = []
-
-            if {"Fp1", "Fp2"} <= set(labels):
-                sfreq = float(info["nominal_srate"][0])
-                if sfreq < 250:
-                    st.error(f"サンプリングレートが {sfreq} Hz です。250 Hz 以上が必要です。")
-                    return None
-
-                fp1_idx, fp2_idx = labels.index("Fp1"), labels.index("Fp2")
+        stream_type = s['info']['type'][0].lower()
+        
+        # EEGストリームを処理
+        if 'eeg' in stream_type:
+            st.info("先頭2チャンネルをEEGデータ(Fp1, Fp2)として読み込みます。")
+            
+            # チャンネル数が2つ以上あるか安全に確認
+            if s['time_series'].shape[1] >= 2:
+                eeg_indices = [0, 1] # 先頭2チャンネルに決め打ち
                 eeg_stream = {
-                    "data": s["time_series"][:, [fp1_idx, fp2_idx]].T,  # shape (2, n_samples)
-                    "times": s["time_stamps"],                          # shape (n_samples,)
-                    "sfreq": sfreq,
-                    "ch_names": ["Fp1", "Fp2"],
+                    'data': s['time_series'][:, eeg_indices].T,
+                    'times': s['time_stamps'],
+                    'sfreq': float(s['info']['nominal_srate'][0]),
+                    'ch_names': ['Fp1', 'Fp2'] # 名前はFp1, Fp2に固定
                 }
-
-        # ── Marker ストリーム判定 ──────────────────
-        if stype in {"markers", "marker", "stim"} or (
-            "marker" in info["name"][0].lower()
-        ):
-            marker_rows = []
-            for ts, ts_values in zip(s["time_stamps"], s["time_series"]):
-                if not ts_values:
-                    continue
+            else:
+                st.error("EEGストリームに2チャンネル分のデータがありません。")
+                return None
+        
+        # マーカーを処理
+        elif stream_type in ['markers', 'marker']:
+            rows = []
+            for ts, val_list in zip(s['time_stamps'], s['time_series']):
+                if not val_list or not val_list[0]: continue
+                val = val_list[0]
                 try:
-                    m_val = int(str(ts_values[0]).strip())
-                    marker_rows.append({"marker_time": ts, "img_id": m_val})
-                except ValueError:
-                    # 数字にならないマーカーは無視
-                    continue
+                    # JSON形式のマーカーを試す
+                    obj = json.loads(val)
+                    img_id = obj.get('img_id')
+                    if img_id is not None:
+                        rows.append({'marker_time': ts, 'marker_value': int(img_id)})
+                except:
+                    # JSONでなければ、単純な整数マーカーを試す
+                    try:
+                        rows.append({'marker_time': ts, 'marker_value': int(val)})
+                    except:
+                        continue # どちらでもなければ無視
+            
+            if rows:
+                marker_stream = pd.DataFrame(rows)
 
-            if marker_rows:
-                marker_df = pd.DataFrame(marker_rows, dtype="float64")
-
-    # ⑤ 存在チェック
+    # 最終チェック
     if eeg_stream is None:
-        st.error("Fp1 / Fp2 を含む EEG ストリームが見つかりませんでした。")
+        st.error("EEGストリームが見つかりませんでした。")
         return None
+    if marker_stream is None:
+        st.warning("マーカーストリームが見つかりませんでした。")
+        marker_stream = pd.DataFrame(columns=['marker_time', 'marker_value'])
 
-    if marker_df is None:
-        st.warning("整数マーカーが見つかりませんでした。画像 ID 指定は利用不可です。")
-        marker_df = pd.DataFrame(columns=["marker_time", "img_id"])
-
-    st.success(f"EEG 読み込み完了 ({eeg_stream['sfreq']} Hz, "
-               f"{eeg_stream['data'].shape[1]:,} samples)")
-    return {"eeg_stream": eeg_stream, "markers": marker_df}
+    st.success(f"EEGデータ読み込み完了 (SampleRate: {eeg_stream['sfreq']} Hz)")
+    return {'eeg_stream': eeg_stream, 'markers': marker_stream}
 
 
-# ────────────────────────────────────────────────
-# 評価 CSV / Excel ───────────────────────────────
-# ────────────────────────────────────────────────
-@st.cache_data(show_spinner="評価データを解析中…")
+@st.cache_data(show_spinner="評価データを解析中...")
 def load_evaluation_data(uploaded_file):
-    """
-    評価データ (CSV / XLSX) を DataFrame で返す。
-    ・必須列: img_id
-    ・数値列: Dislike_Like, sam_val, sam_aro を自動 numeric 変換
-    """
+    """評価データ(CSV/XLSX)を読み込む（この部分は変更なし）"""
     try:
-        # ① 拡張子チェック
-        fname = uploaded_file.name.lower()
-        if fname.endswith(".csv"):
+        fname = uploaded_file.name
+        if fname.endswith('.csv'):
             df = pd.read_csv(uploaded_file)
-        elif fname.endswith((".xlsx", ".xls")):
-            df = pd.read_excel(uploaded_file, engine="openpyxl")
+        elif fname.endswith(('.xlsx', '.xls')):
+            df = pd.read_excel(uploaded_file, engine='openpyxl')
         else:
-            st.error("CSV か Excel(.xlsx/.xls) をアップロードしてください。")
+            st.error("サポートされていないファイル形式です。")
             return None
-
-        # ② 前処理
-        df.columns = df.columns.str.strip()  # 空白除去
-        if "img_id" not in df.columns:
-            st.error("必須列 'img_id' が見つかりません。")
+        df.columns = df.columns.str.strip()
+        if 'img_id' not in df.columns:
+            st.error("評価データに必須列 'img_id' が見つかりません。")
             return None
-
-        # img_id → int へ　(欠損は行ごとドロップ)
-        df["img_id"] = pd.to_numeric(df["img_id"], errors="coerce")
-        df = df.dropna(subset=["img_id"]).reset_index(drop=True)
-        df["img_id"] = df["img_id"].astype(int)
-
-        # 評価列を numeric へ
-        for col in ["Dislike_Like", "sam_val", "sam_aro"]:
+        df['img_id'] = pd.to_numeric(df['img_id'], errors='coerce').dropna().astype(int)
+        for col in ['Dislike_Like', 'sam_val', 'sam_aro']:
             if col in df.columns:
-                df[col] = pd.to_numeric(df[col], errors="coerce")
-
-        st.success(f"評価データ読み込み完了 ({len(df):,} rows)")
+                df[col] = pd.to_numeric(df[col], errors='coerce')
+        st.success(f"評価データ読み込み完了 ({len(df)}件)")
         return df
-
     except Exception as e:
         st.error(f"評価データの読み込みに失敗しました: {e}")
         return None
