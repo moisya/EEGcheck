@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 from scipy import signal
-from scipy.integrate import trapz
+from numpy import trapz
 import streamlit as st
 
 def calculate_psd(data, sfreq):
