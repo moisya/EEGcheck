@@ -5,7 +5,8 @@ from numpy import trapz
 import streamlit as st
 
 def calculate_psd(data, sfreq):
-    nperseg = min(len(data), sfreq)
+    # 窓の長さに合わせてnpersegを設定
+    nperseg = len(data)
     return signal.welch(data, fs=sfreq, nperseg=nperseg)
 
 def bandpower(freqs, psd, band):
@@ -14,7 +15,7 @@ def bandpower(freqs, psd, band):
 
 def calculate_features_sliding_window(filtered_eeg_data, time_range):
     """
-    スライディングウィンドウ法で、より精密な特徴量を計算する
+    スライディングウィンドウ法で、より精密な特徴量を計算する（最適化版）
     """
     from preprocess import create_epochs
 
@@ -22,9 +23,12 @@ def calculate_features_sliding_window(filtered_eeg_data, time_range):
     eeg_stream = filtered_eeg_data['eeg_stream']
     sfreq = int(eeg_stream['sfreq'])
 
-    # スライディングウィンドウの設定
-    window_size_sec = 0.25  # 窓の幅（秒）
-    step_size_sec = 0.1   # 窓をスライドさせる幅（秒）
+    # ★★ ここを修正 ★★
+    # スライディングウィンドウの設定を最適化
+    window_size_sec = 1.0  # 窓の幅を1秒に延長 -> 信頼できる周波数分解能を確保
+    step_size_sec = 0.25   # スライド幅は短く保つ -> 時間的な精度を確保
+    # ★★ ここまで ★★
+    
     window_samples = int(window_size_sec * sfreq)
     step_samples = int(step_size_sec * sfreq)
 
@@ -39,6 +43,9 @@ def calculate_features_sliding_window(filtered_eeg_data, time_range):
         if epoch is None: continue
 
         data = epoch['data']
+        # エポック長がウィンドウサイズより短い場合はスキップ
+        if data.shape[1] < window_samples: continue
+        
         num_windows = (data.shape[1] - window_samples) // step_samples + 1
 
         for i in range(num_windows):
@@ -46,7 +53,6 @@ def calculate_features_sliding_window(filtered_eeg_data, time_range):
             end_idx = start_idx + window_samples
             window_data = data[:, start_idx:end_idx]
             
-            # このウィンドウの開始時間（秒）
             window_start_sec = start_idx / sfreq
 
             features = {
@@ -55,14 +61,11 @@ def calculate_features_sliding_window(filtered_eeg_data, time_range):
                 'window_end_sec': end_idx / sfreq
             }
             
-            # 各チャンネルに対して特徴量を計算
             for ch_idx, ch_name in enumerate(['Fp1', 'Fp2']):
                 ch_data = window_data[ch_idx]
                 
-                # 1. 振幅 (Peak-to-Peak)
                 features[f'{ch_name}_amplitude'] = np.ptp(ch_data)
                 
-                # 2. バンドパワー
                 freqs, psd = calculate_psd(ch_data, sfreq)
                 features[f'{ch_name}_delta'] = bandpower(freqs, psd, bands['delta'])
                 features[f'{ch_name}_gamma'] = bandpower(freqs, psd, bands['gamma'])
