@@ -63,8 +63,6 @@ def outlier_rejection_tab(controls):
     ch_select = st.radio("対象チャンネル", ["Fp1", "Fp2"], horizontal=True)
     
     st.markdown("##### 除去する閾値を設定（いずれか一つでも超えたら除去）")
-    
-    # 6つの閾値を設定
     thresholds = {}
     cols = st.columns(3)
     bands = ['amplitude', 'delta', 'theta', 'alpha', 'beta', 'gamma']
@@ -73,23 +71,31 @@ def outlier_rejection_tab(controls):
         if key in df.columns:
             thresholds[key] = cols[i % 3].number_input(f"{key} の上限", value=df[key].quantile(0.99))
 
-    # 外れ値ウィンドウを特定
     if thresholds:
       query = " | ".join([f"`{key}` >= {val}" for key, val in thresholds.items()])
       outliers = df.query(query)
       st.session_state.outlier_windows_df = outliers
       st.metric("除去された微小区間（ウィンドウ）の数", len(outliers), f"-{len(outliers) / len(df):.1%}" if len(df) > 0 else "")
     
-    # 表示するグラフの軸を自由に選択
-    st.markdown("##### 表示するグラフの軸を選択")
+    # ★★ ここからUIを刷新 ★★
+    st.markdown("##### 表示するグラフの軸と凡例を選択")
+    if st.session_state.eval_data is None:
+        st.warning("凡例（色分け）を使用するには、試行情報ファイルをアップロードしてください。")
+        return
+        
     feature_cols = [f'{ch_select}_{b}' for b in bands]
-    col1, col2 = st.columns(2)
-    x_axis = col1.selectbox("X軸", feature_cols, index=1) # delta
-    y_axis = col2.selectbox("Y軸", feature_cols, index=0) # amplitude
+    eval_cols = [c for c in st.session_state.eval_data.columns if c not in ['sid', 'img_id', 'time']]
+    
+    col1, col2, col3 = st.columns(3)
+    x_axis = col1.selectbox("X軸（EEG特徴量）", feature_cols, index=1) # delta
+    y_axis = col2.selectbox("Y軸（EEG特徴量）", feature_cols, index=0) # amplitude
+    color_axis = col3.selectbox("凡例/色（主観評価）", eval_cols)
 
-    if x_axis in df.columns and y_axis in df.columns:
-        fig = plot_outlier_scatter(df, x_axis, y_axis, thresholds.get(x_axis), thresholds.get(y_axis))
+    if x_axis in df.columns and y_axis in df.columns and color_axis in st.session_state.eval_data.columns:
+        plot_df = pd.merge(df, st.session_state.eval_data, on='img_id', how='left')
+        fig = plot_outlier_scatter(plot_df, x_axis, y_axis, color_axis, thresholds.get(x_axis), thresholds.get(y_axis))
         st.plotly_chart(fig, use_container_width=True)
+    # ★★ ここまで ★★
 
 # --- 除去後波形タブ ---
 def post_rejection_viewer_tab(controls):
@@ -109,9 +115,7 @@ def post_rejection_viewer_tab(controls):
     if raw_epoch and filtered_epoch:
         plot_data = {'raw': raw_epoch['data'], 'filtered': filtered_epoch['data'], 'times': raw_epoch['times'], 'time_range': controls['time_range']}
         outliers_for_plot = st.session_state.outlier_windows_df[st.session_state.outlier_windows_df['img_id'] == img_id_to_view]
-        
         outliers_for_plot_renamed = outliers_for_plot.rename(columns={'window_start_sec': 'second', 'window_end_sec': 'second_end'})
-        
         fig = plot_waveforms(plot_data, display_mode="並べて", outlier_df=outliers_for_plot_renamed)
         st.plotly_chart(fig, use_container_width=True)
 
@@ -121,7 +125,6 @@ def main():
     initialize_session_state()
     st.title("🧠 EEG 精密アーチファクト除去ツール")
     controls = sidebar_controls()
-    
     tab1, tab2 = st.tabs(["🔬 アーチファクトの検出・除去", "👀 除去後の波形確認"])
     with tab1: outlier_rejection_tab(controls)
     with tab2: post_rejection_viewer_tab(controls)
