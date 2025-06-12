@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 from scipy.stats import pearsonr
 import streamlit as st
-import plotly.express as px  # ←★★この1行を追加しました！★★
+import plotly.express as px
 
 def plot_waveforms(plot_data, display_mode="重ねて"):
     """生波形とフィルター後波形をプロット"""
@@ -32,20 +32,28 @@ def plot_waveforms(plot_data, display_mode="重ねて"):
     fig.update_layout(height=500, template="plotly_white", hovermode="x unified")
     return fig
 
-def plot_scatter_with_regression(data, x_col, y_col):
-    """散布図と回帰線をプロットし、相関係数とp値を返す"""
-    clean_data = data[[x_col, y_col, 'img_id']].dropna()
+# ★★ここを修正★★
+def plot_scatter_with_regression(data, x_col, y_col, color_col):
+    """
+    2つのEEG特徴量の散布図を、主観評価で色分けしてプロットする
+    """
+    # 3つの変数すべてで欠損値を除去
+    clean_data = data[[x_col, y_col, color_col, 'img_id']].dropna()
     if len(clean_data) < 3:
         st.warning(f"有効なデータが3点未満のため、散布図を描画できません。")
         return None, np.nan, np.nan
 
+    # X軸とY軸の相関は引き続き計算
     x, y = clean_data[x_col], clean_data[y_col]
     r, p = pearsonr(x, y)
     
-    fig = px.scatter(clean_data, x=x_col, y=y_col,
-                     trendline="ols", trendline_color_override="red",
+    # 散布図作成（trendlineを削除し、colorを追加）
+    fig = px.scatter(clean_data, 
+                     x=x_col, 
+                     y=y_col,
+                     color=color_col,  # ←主観評価を色に反映
                      hover_data=['img_id'],
-                     title=f"<b>{y_col}</b> vs <b>{x_col}</b>")
+                     title=f"<b>{x_col}</b> vs <b>{y_col}</b> (色: {color_col})")
     
     fig.update_layout(template="plotly_white", height=500)
     return fig, r, p
